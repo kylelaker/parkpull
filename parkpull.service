@@ -1,0 +1,12 @@
+[Unit]
+Description=Pulls JMU parking data
+Requires=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/parkpull
+Restart=always
+User=parking-data
+
+[Install]
+WantedBy=multi-user.target
