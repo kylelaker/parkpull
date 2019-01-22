@@ -1,18 +1,36 @@
 extern crate chrono;
 extern crate reqwest;
-extern crate timer;
 
 mod download;
+
+use std::thread;
+use std::time;
 
 use chrono::prelude::*;
 use reqwest::Client;
 
+/// Gets the data that needs to be fetched and saves it to a file. The file
+/// will be the current time in YYYY-MM-DD-HH-MM-SS format. An error message
+/// will be printed on failure either when pulling or saving the data and the
+/// error will not be propogated.
+fn data_helper(client: &Client, site: &str) {
+    let filename = format!("/home/parking-data/xml2/{}.xml",
+                           Utc::now().format("%Y-%m-%d-%H-%M-%S"));
+    let data = match download::download_data(client, site) {
+        Ok(dat) => dat,
+        Err(err) => {
+            eprintln!("Error fetching data: {:?}", err);
+            return;
+        },
+    };
+    if let Err(err) = download::save_data(data, &filename) {
+        eprintln!("Error writing data: {:?}", err);
+        return;
+    }
+    println!("Wrote to {}", filename);
+}
+
 fn main() {
-
-    /* TODO: Make the duration and output path command line arguments */
-
-    let timer = timer::Timer::new();
-
     /*
      * The reqwest Client has its own connection pool, so we'll share a
      * Client across all threads
@@ -20,39 +38,19 @@ fn main() {
     let client = Client::new();
     let site = "http://www.jmu.edu/cgi-bin/parking_get_sign_data.cgi";
 
-    let _guard = {
+    let worker_thread = {
         /* Get the data every minute */
-        timer.schedule_repeating(chrono::Duration::seconds(60), move || {
-            let filename = format!("/home/parking-data/xml2/{}.xml",
-                                   Utc::now().format("%Y-%m-%d-%H-%M-%S"));
-            let data = match download::download_data(&client, site) {
-                Ok(dat) => dat,
-                Err(err) => {
-                    /*
-                     * Log an error and return from the closure. This does
-                     * not return from main()
-                     */
-                    eprintln!("Error fetching data: {:?}", err);
-                    return;
-                },
-            };
-            match download::save_data(data, &filename) {
-                Ok(_) => (),
-                Err(err) => {
-                    /*
-                     * Log an error and return from the closure. This does
-                     * not return from main()
-                     */
-                    eprintln!("Error writing data: {:?}", err);
-                    return;
-                },
-            };
-            println!("Wrote to {}", filename);
+        thread::spawn(move || {
+            loop {
+                data_helper(&client, site);
+                thread::sleep(time::Duration::from_secs(60));
+            }
         })
     };
 
-    loop {
-        /* We never exit so that the schedule will run forever */
-    }
-
+    /*
+     * This should literally never be finish since the worker thread loops
+     * forever.
+     */
+    worker_thread.join().unwrap();
 }
